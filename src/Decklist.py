@@ -2,11 +2,12 @@ import pandas as pd
 from Card import Card
 
 class Decklist:
-    def __init__(self, csv_path):
+    def __init__(self, csv_path, winrate):
         
         self.df = pd.read_csv(csv_path)
         self.prepare_dataframe()
         self.cards = self.create_cards()
+        self.winrate = winrate
     
     def prepare_dataframe(self):
         for i in range(5):
