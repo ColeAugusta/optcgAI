@@ -80,6 +80,29 @@ def TrainModel(leader, deck_data, epochs=50, batch_size=16, lr=0.001):
     dataset = DeckDataset(deck_data)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
+    model = DeckOptimizer()
+    optimizer = optim.Adam(model.parameters(), lr=lr)
+    criterion = nn.MSELoss()
+
+    model.train()
+    for epoch in range(epochs):
+        total_loss = 0
+        for cards, win_rates in dataloader:
+            optimizer.zero_grad()
+
+            predictions = model(cards)
+            loss = criterion(predictions, win_rates)
+
+            loss.backward()
+            optimizer.step()
+
+            total_loss += loss.item()
+
+            avg_loss = total_loss / len(dataloader)
+            if (epoch + 1) % 10 == 0:
+                print(f"Epoch [{epoch+1}/{epochs}], Loss: {avg_loss:.4f}")
+    
+    return model
 
 if __name__ == "__main__":
     bonney = Decklist("../data/op12BonneyCards.csv", 0.55)
