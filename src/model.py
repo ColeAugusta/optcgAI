@@ -62,7 +62,26 @@ class DeckOptimizer(nn.Module):
             nn.Sigmoid()
         )
 
+    def forward(self, cards):
+        # encode card: (batch, num cards, features) -> (batch, num cards, 32)
+        card_encodings = self.card_encoder(cards)
+
+        # aggregate cards
+        deck_encoding = torch.mean(card_encodings, dim=1) # (batch, 32)
+        deck_features = self.deck_aggregator(deck_encoding) # (batch, hidden_dim)
+
+        win_rate = self.predictor(deck_features)
+        return win_rate
+
+
+def TrainModel(leader, deck_data, epochs=50, batch_size=16, lr=0.001):
+
+    print(f"Training model for leader: {leader}")
+    dataset = DeckDataset(deck_data)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+
 if __name__ == "__main__":
-    bonney = Decklist("../data/op12BonneyCards.csv", 0.67)
-    dataset = DeckDataset(bonney)
-    dataloader = DataLoader(dataset, shuffle=True)
+    bonney = Decklist("../data/op12BonneyCards.csv", 0.55)
+    dataset1 = DeckDataset(bonney)
+    dataloader = DataLoader(dataset1, shuffle=True)
