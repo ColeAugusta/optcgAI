@@ -32,16 +32,34 @@ class DeckDataset(Dataset):
         
         return torch.tensor(features, dtype=torch.float32)
 
-# Nueral network optimizer for single leader
+# Nueral network optimizer for single leader optimization
 class DeckOptimizer(nn.Module):
     def __init__(self, card_feature_dim=9, hidden_dim=128):
         super().__init__()
 
+        # process each card
         self.card_encoder = nn.Sequential(
             nn.Linear(card_feature_dim, 64),
             nn.ReLU(),
             nn.Linear(64, 32),
+            nn.ReLU(),
+        )
+
+        # get deck-level features
+        self.deck_aggregator = nn.Sequential(
+            nn.Linear(32, 64),
+            nn.ReLU(),
+            nn.Linear(64, hidden_dim),
             nn.ReLU()
+        )
+
+        # get final prediction
+        self.predictor = nn.Sequential(
+            nn.Linear(hidden_dim, 64),
+            nn.ReLU(),
+            nn.Dropout(0.2),         # drop 20% of neurons
+            nn.Linear(64, 1),
+            nn.Sigmoid()
         )
 
 if __name__ == "__main__":
