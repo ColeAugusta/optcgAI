@@ -12,7 +12,8 @@ class DeckDataset(Dataset):
         self.data.append({
             'cards': self.cards_to_tensor(decklist),
             'win_rate': decklist.winrate
-        }) 
+        })
+        
 
     def __len__(self):
         return len(self.data)
@@ -81,36 +82,47 @@ class DeckOptimizer(nn.Module):
         win_rate = self.predictor(deck_features)
         return win_rate
 
+def collate_fn(batch):
+    return torch.stack(batch)
 
-def TrainModel(leader, deck_data, epochs=50, batch_size=16, lr=0.001):
+
+def TrainModel(leader, decklist, epochs=50, batch_size=16, lr=0.001):
 
     print(f"Training model for leader: {leader}")
-    dataset = DeckDataset(deck_data)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    dataset = DeckDataset(decklist)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn)
 
+    # init model
     model = DeckOptimizer()
     optimizer = optim.Adam(model.parameters(), lr=lr)
     criterion = nn.MSELoss()
+    target_winrate = torch.tensor([[decklist.winrate]], dtype=torch.float32)
 
     model.train()
     for epoch in range(epochs):
         total_loss = 0
-        for cards, win_rates in dataloader:
+        num_batches = 0
+        
+        for card_batch in dataloader:
+            # card_batch is (batch_size, 9) - need to reshape to (1, batch_size, 9) for model
+            cards = card_batch.unsqueeze(0)  # (1, batch_size, 9)
+            
             optimizer.zero_grad()
-
-            # forward pass/predictions
+            
+            # Forward pass
             predictions = model(cards)
-            loss = criterion(predictions, win_rates)
-
-            # backward pass
+            loss = criterion(predictions, target_winrate)
+            
+            # Backward pass
             loss.backward()
             optimizer.step()
-
+            
             total_loss += loss.item()
-
-            avg_loss = total_loss / len(dataloader)
-            if (epoch + 1) % 10 == 0:
-                print(f"Epoch [{epoch+1}/{epochs}], Loss: {avg_loss:.4f}")
+            num_batches += 1
+        
+        avg_loss = total_loss / num_batches
+        if (epoch + 1) % 10 == 0:
+            print(f"Epoch [{epoch+1}/{epochs}], Loss: {avg_loss:.4f}")
     
     return model
 
