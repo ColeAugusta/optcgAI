@@ -9,11 +9,19 @@ from Decklist import Decklist
 class DeckDataset(Dataset):
     def __init__(self, decklist: Decklist):
         self.data = []
-        self.data.append(self.cards_to_tensor(decklist))
-        self.data.append(decklist.winrate)
+        self.data.append({
+            'cards': self.cards_to_tensor(decklist),
+            'win_rate': decklist.winrate
+        }) 
 
     def __len__(self):
         return len(self.data)
+    
+    def __getitem__(self, index):
+        return {
+            'cards': self.data[index]['cards'],
+            'win_rate': torch.tensor([self.data[index]['win_rate']], dtype=torch.float32)
+        }
 
     # build tensors form decklist cards
     def cards_to_tensor(self, decklist: Decklist) -> torch.Tensor:
@@ -21,12 +29,12 @@ class DeckDataset(Dataset):
         for card in decklist.cards:
             feature_vec = [
                 # simple hashing for tensors
-                hash(card.number) % 10000,
-                hash(card.card_type) % 1000,
-                hash(card.name) % 100000,
-                card.appearance_rate,
-                card.decks_appeared
-            ] + card.number_appeared
+                float(hash(card.number) % 10000),
+                float(hash(card.card_type) % 1000),
+                float(hash(card.name) % 100000),
+                float(card.appearance_rate),
+                float(card.decks_appeared)
+            ] + [float(x) for x in card.number_appeared]
 
             features.append(feature_vec)
         
@@ -90,9 +98,11 @@ def TrainModel(leader, deck_data, epochs=50, batch_size=16, lr=0.001):
         for cards, win_rates in dataloader:
             optimizer.zero_grad()
 
+            # forward pass/predictions
             predictions = model(cards)
             loss = criterion(predictions, win_rates)
 
+            # backward pass
             loss.backward()
             optimizer.step()
 
@@ -106,5 +116,4 @@ def TrainModel(leader, deck_data, epochs=50, batch_size=16, lr=0.001):
 
 if __name__ == "__main__":
     bonney = Decklist("../data/op12BonneyCards.csv", 0.55)
-    dataset1 = DeckDataset(bonney)
-    dataloader = DataLoader(dataset1, shuffle=True)
+    bonney_model = TrainModel("Green Bonney", bonney, epochs=50)
