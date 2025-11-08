@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import numpy as np
 from Card import Card
 from Decklist import Decklist
 
@@ -15,6 +16,7 @@ class DeckOptimizer:
         self.n_cards = len(self.cards)
 
 
+    # need matrix for card features, for corrent tensor mult
     def create_feature_matrix(self):
         features = []
         for card in self.cards:
@@ -23,88 +25,54 @@ class DeckOptimizer:
             features.append([
                 card.appearance_rate,
                 number_appeared,
-                card.decks_appeared
+                card.decks_appeared / max(card.decks_appeared for card in self.cards)
             ])
+        return torch.tensor(features, dtype=torch.float32)
 
-        # process each card
-        self.card_encoder = nn.Sequential(
-            nn.Linear(card_feature_dim, 64),
-            nn.ReLU(),
-            nn.Linear(64, 32),
-            nn.ReLU(),
-        )
+    def optimize_deck(self, max_copies=4, learning_rate=0.1, iterations=1000, temperature=1.0, anneal_rate=0.995):
 
-        # get deck-level features
-        self.deck_aggregator = nn.Sequential(
-            nn.Linear(32, 64),
-            nn.ReLU(),
-            nn.Linear(64, hidden_dim),
-            nn.ReLU()
-        )
+        # logits for copies of cards
+        logits = nn.Parameter(torch.zeros(self.n_cards, max_copies + 1))
 
-        # get final prediction
-        self.predictor = nn.Sequential(
-            nn.Linear(hidden_dim, 64),
-            nn.ReLU(),
-            nn.Dropout(0.2),         # drop 20% of neurons
-            nn.Linear(64, 1),
-            nn.Sigmoid()
-        )
-
-    def forward(self, cards):
-        # encode card: (batch, num cards, features) -> (batch, num cards, 32)
-        card_encodings = self.card_encoder(cards)
-
-        # aggregate cards
-        deck_encoding = torch.mean(card_encodings, dim=1) # (batch, 32)
-        deck_features = self.deck_aggregator(deck_encoding) # (batch, hidden_dim)
-
-        win_rate = self.predictor(deck_features)
-        return win_rate
-
-def collate_fn(batch):
-    return torch.stack(batch)
-
-
-def TrainModel(leader, decklist, epochs=50, batch_size=16, lr=0.001):
-
-    print(f"Training model for leader: {leader}")
-    dataset = DeckDataset(decklist)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn)
-
-    # init model
-    model = DeckOptimizer()
-    optimizer = optim.Adam(model.parameters(), lr=lr)
-    criterion = nn.MSELoss()
-    target_winrate = torch.tensor([[decklist.winrate]], dtype=torch.float32)
-
-    model.train()
-    for epoch in range(epochs):
-        total_loss = 0
-        num_batches = 0
+        for i, card in enumerate(self.cards):
+            for count in range(max_copies + 1):
+                logits.data[i, count] = np.log(card.number_appeared[count] + 1e-8) # idk really
         
-        for card_batch in dataloader:
-            # card_batch is (batch_size, 9) - need to reshape to (1, batch_size, 9) for model
-            cards = card_batch.unsqueeze(0)  # (1, batch_size, 9)
-            
+        optimizer = optim.Adam([logits], lr=learning_rate)
+
+        best_deck = None
+        best_score = float('-inf')
+
+        # loss and backward steps
+        for iteration in iterations:
             optimizer.zero_grad()
-            
-            # Forward pass
-            predictions = model(cards)
-            loss = criterion(predictions, target_winrate)
-            
-            # Backward pass
+
+            # get differentiable card counts with Softmax
+            temp = temperature * (anneal_rate ** iteration)
+            card_probs = torch.softmax(logits / temp, dim=1)
+
+            # expected # of cards
+            counts = torch.arange(max_copies + 1, dtype=torch.float32)
+            expected_counts = (card_probs * counts).sum(dim=1)
+
+            # Calculate loss
+            # match deck size,
+            # match appearance rate distribution,
+            # push toward more expected copies i.e. run 4 of a card
+            # penalize underusing core cards
+            # entropy
+            deck_size_loss = (expected_counts.sum() - self.deck_size) ** 2
+            appearance_score = (expected_counts * self.features[:, 0]).sum()
+            expected_copy_score = (expected_counts * self.features[:, 1]).sum()
+            underuse_penalty = torch.relu(self.features[:,0] * max_copies - expected_counts).sum()
+            entropy = -(card_probs * torch.log(card_probs + 1e-8)).sum()
+
+            # combined loss
+            loss = (deck_size_loss * 10.0 - appearance_score * 5.0 - expected_copy_score * 2.0 + underuse_penalty * 3.0 - entropy * 0.01)
             loss.backward()
             optimizer.step()
-            
-            total_loss += loss.item()
-            num_batches += 1
-        
-        avg_loss = total_loss / num_batches
-        if (epoch + 1) % 10 == 0:
-            print(f"Epoch [{epoch+1}/{epochs}], Loss: {avg_loss:.4f}")
-    
-    return model
+
+
 
 if __name__ == "__main__":
     bonney = Decklist("../data/op12BonneyCards.csv", 0.55)
