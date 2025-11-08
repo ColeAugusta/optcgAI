@@ -1,50 +1,30 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
 from Card import Card
 from Decklist import Decklist
 
-# convert decklists -> dataset
-class DeckDataset(Dataset):
-    def __init__(self, decklist: Decklist):
-        self.data = []
-        self.data.append({
-            'cards': self.cards_to_tensor(decklist),
-            'win_rate': decklist.winrate
-        })
-        
-
-    def __len__(self):
-        return len(self.data)
-    
-    def __getitem__(self, index):
-        return {
-            'cards': self.data[index]['cards'],
-            'win_rate': torch.tensor([self.data[index]['win_rate']], dtype=torch.float32)
-        }
-
-    # build tensors form decklist cards
-    def cards_to_tensor(self, decklist: Decklist) -> torch.Tensor:
-        features = []
-        for card in decklist.cards:
-            feature_vec = [
-                # simple hashing for tensors
-                float(hash(card.number) % 10000),
-                float(hash(card.card_type) % 1000),
-                float(hash(card.name) % 100000),
-                float(card.appearance_rate),
-                float(card.decks_appeared)
-            ] + [float(x) for x in card.number_appeared]
-
-            features.append(feature_vec)
-        
-        return torch.tensor(features, dtype=torch.float32)
-
 # Nueral network optimizer for single leader optimization
-class DeckOptimizer(nn.Module):
-    def __init__(self, card_feature_dim=9, hidden_dim=128):
-        super().__init__()
+class DeckOptimizer:
+    def __init__(self, decklist, deck_size=50, leader_id=None):
+
+        self.decklist = decklist
+        self.deck_size = deck_size
+        self.leader_id = leader_id
+        self.cards = [card for card in decklist.cards if card.card_type != 'Leader']
+        self.n_cards = len(self.cards)
+
+
+    def create_feature_matrix(self):
+        features = []
+        for card in self.cards:
+            # appearance rate, number appeared, deck freq.
+            number_appeared = sum(i * card.number_appeared[i] for i in range(5))
+            features.append([
+                card.appearance_rate,
+                number_appeared,
+                card.decks_appeared
+            ])
 
         # process each card
         self.card_encoder = nn.Sequential(
@@ -128,4 +108,4 @@ def TrainModel(leader, decklist, epochs=50, batch_size=16, lr=0.001):
 
 if __name__ == "__main__":
     bonney = Decklist("../data/op12BonneyCards.csv", 0.55)
-    bonney_model = TrainModel("Green Bonney", bonney, epochs=50)
+    optimizer = DeckOptimizer(bonney, deck_size=50)
