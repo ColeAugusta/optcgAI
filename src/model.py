@@ -15,6 +15,7 @@ class DeckOptimizer:
         self.leader_id = leader_id
         self.cards = [card for card in decklist.cards if card.card_type != 'Leader']
         self.n_cards = len(self.cards)
+        self.features = self.create_feature_matrix()
 
 
     # need matrix for card features, for corrent tensor mult
@@ -45,7 +46,7 @@ class DeckOptimizer:
         best_score = float('-inf')
 
         # loss and backward steps
-        for iteration in iterations:
+        for iteration in range(iterations):
             optimizer.zero_grad()
 
             # get differentiable card counts with Softmax
@@ -99,7 +100,7 @@ class DeckOptimizer:
     def adjust_deck_size(self, deck_counts, max_copies):
         current_size = deck_counts.sum().item()
         while current_size < self.deck_size:
-            # highest appearance rate, but not max
+            # while curr_size < size, add highest appearance rate, but not max
             scores = []
             for i, card in enumerate(self.cards):
                 if deck_counts[i] < max_copies:
@@ -107,7 +108,67 @@ class DeckOptimizer:
             if not scores:
                 break
 
+            scores.sort(reverse=True)
+            deck_counts[scores[0][1]] += 1
+            current_size += 1
+        
+        while current_size > self.deck_size:
+            # while curr_size > size, remove lowest appearance rate
+            scores = []
+            for i, card in enumerate(self.cards):
+                if deck_counts[i] > 0:
+                    scores.append((self.features[i, 0].item(), i))
+                if not scores:
+                    break
+                scores.sort()
+                deck_counts[scores[0][1]] -= 1
+                current_size -= 1
+        
+        return deck_counts
+    
+    # tensor counts to dictionary
+    def create_deck_dict(self, deck_counts):
+        deck = {}
+        for i, card in enumerate(self.cards):
+            count = int(deck_counts[i].item())
+            if count > 0:
+                deck[card.name] = {
+                    'count': count,
+                    'number': card.number,
+                    'type': card.card_type,
+                    'appearance_rate': card.appearance_rate
+                }
+        return deck
+    
+    def print_deck(self, deck):
+        print(f"\n{'='*70}")
+        print(f"Optimized Deck (winrate: {self.decklist.winrate:.2%})")
+        print(f"\n{'='*70}")
+
+        total_cards = sum(d['count'] for d in deck.values())
+        print(f"Total cards: {total_cards}")
+        print(f"\n{'Count':<6} {'Card #':<12} {'Type':<12} {'Name':<25} {'Appear %'}")
+        print('-' * 70)
+
+        sorted_deck = sorted(deck.items(),
+                             key=lambda x: (x[1]['type'], -x[1]['appearance_rate']))
+        for name, info in sorted_deck:
+            print(f"{info['count']:<6} {info['number']:<12} {info['type']:<12} "
+                  f"{name:<25} {info['appearance_rate']:.1%}")            
+
+
 
 if __name__ == "__main__":
     bonney = Decklist("../data/op12BonneyCards.csv", 0.55)
     optimizer = DeckOptimizer(bonney, deck_size=50)
+
+    print ("optimizing...")
+    optimized = optimizer.optimize_deck(
+        max_copies=4,
+        learning_rate=0.1,
+        iterations=1000,
+        temperature=2.0,
+        anneal_rate=0.995
+    )
+
+    optimizer.print_deck(optimized)
