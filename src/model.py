@@ -6,6 +6,7 @@ from Card import Card
 from Decklist import Decklist
 
 # Nueral network optimizer for single leader optimization
+# includes input decklist information for multiple leaders later
 class DeckOptimizer:
     def __init__(self, decklist, deck_size=50, leader_id=None):
 
@@ -72,6 +73,39 @@ class DeckOptimizer:
             loss.backward()
             optimizer.step()
 
+            # track best deck
+            with torch.no_grad():
+                hard_counts = card_probs.argmax(dim=1)
+                if hard_counts.sum() <= self.deck_size:
+                    # card score = appearance + expected - underuse, should change later
+                    score = appearance_score + expected_copy_score - underuse_penalty
+                    if score > best_score:
+                        best_score = score
+                        best_deck = hard_counts.clone()
+            
+            if (iteration + 1) % 100 == 0:
+                print(f"Iteration {iteration + 1}: Loss = {loss.item():.4f}, " 
+                      f"Deck Size = {expected_counts.sum().item():.1f}, "
+                      f"Temp = {temp:.4f}")
+        
+        if best_deck is None:
+            best_deck = card_probs.argmax(dim=1)
+        
+        final_deck = self.adjust_deck_size(best_deck, max_copies)
+
+        return self.create_deck_dict(final_deck)
+    
+    # need this cause torch tensors, fit to match deck_size
+    def adjust_deck_size(self, deck_counts, max_copies):
+        current_size = deck_counts.sum().item()
+        while current_size < self.deck_size:
+            # highest appearance rate, but not max
+            scores = []
+            for i, card in enumerate(self.cards):
+                if deck_counts[i] < max_copies:
+                    scores.append((self.features[i, 0].item(), i))
+            if not scores:
+                break
 
 
 if __name__ == "__main__":
