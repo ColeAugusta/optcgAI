@@ -98,32 +98,45 @@ class DeckOptimizer:
     
     # need this cause torch tensors, fit to match deck_size
     def adjust_deck_size(self, deck_counts, max_copies):
-        current_size = deck_counts.sum().item()
+        deck_counts = deck_counts.clone();
+        current_size = int(deck_counts.sum().item())
         while current_size < self.deck_size:
-            # while curr_size < size, add highest appearance rate, but not max
+            # while curr_size < size, 
+            # add highest appearance rate, but not over max
+            # including expected copies
             scores = []
             for i, card in enumerate(self.cards):
                 if deck_counts[i] < max_copies:
-                    scores.append((self.features[i, 0].item(), i))
+                    score = self.features[i, 0].item() * 2 + self.features[i, 1].item()
+                    scores.append((score, i))
             if not scores:
+                print("warning: cannot add more cards (all at max copies)")
                 break
 
             scores.sort(reverse=True)
-            deck_counts[scores[0][1]] += 1
+            best_index = scores[0][1]
+            deck_counts[best_index] += 1
             current_size += 1
         
         while current_size > self.deck_size:
-            # while curr_size > size, remove lowest appearance rate
+            # while curr_size > size, 
+            # remove lowest appearance rate
             scores = []
             for i, card in enumerate(self.cards):
                 if deck_counts[i] > 0:
-                    scores.append((self.features[i, 0].item(), i))
+                    score = self.features[i, 0].item() * 2 + self.features[i, 1].item()
+                    scores.append((score, i))
                 if not scores:
+                    print("warning: cannot remove more cards (all at 0)")
                     break
                 scores.sort()
-                deck_counts[scores[0][1]] -= 1
+                worst_index = scores[0][1]
+                deck_counts[worst_index] -= 1
                 current_size -= 1
         
+        final_size = int(deck_counts.sum().item())
+        if final_size != self.deck_size:
+            print(f"warning: final deck size is {final_size}, not 50")
         return deck_counts
     
     # tensor counts to dictionary
